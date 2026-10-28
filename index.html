@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistant Vocal + IA</title>
+<style>
+  :root{ --accent:#4f8cff; --accent2:#a855f7; --txt:#e8ecf5; --muted:#8b96b0; }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;font-family:system-ui,'Segoe UI',Roboto,sans-serif;
+    background:radial-gradient(circle at 50% -10%,#1b2542 0%,#0b1020 55%);
+    color:var(--txt);display:flex;flex-direction:column;align-items:center;padding:28px 16px 40px;}
+  h1{font-size:1.35rem;font-weight:600;margin:0 0 6px}
+  .sub{color:var(--muted);font-size:.85rem;margin:0 0 24px}
+  .orb-wrap{position:relative;width:190px;height:190px;display:grid;place-items:center}
+  .anneau{position:absolute;inset:0;border-radius:50%;border:2px solid rgba(79,140,255,.22)}
+  .anneau:nth-child(2){inset:14px;border-color:rgba(168,85,247,.18)}
+  .orb{width:140px;height:140px;border-radius:50%;border:none;cursor:pointer;
+    background:radial-gradient(circle at 35% 30%,#9ec2ff,#4f8cff 45%,#a855f7 100%);
+    box-shadow:0 0 45px rgba(79,140,255,.45),0 0 100px rgba(168,85,247,.25);
+    transition:transform .15s ease;outline-offset:6px}
+  .orb:active{transform:scale(.95)}
+  .orb.ecoute,.orb.reflechi,.orb.parle{animation:pulse 1.3s ease-in-out infinite}
+  .orb.parle{animation-duration:.65s}
+  @keyframes pulse{
+    0%,100%{transform:scale(1);box-shadow:0 0 45px rgba(79,140,255,.45),0 0 100px rgba(168,85,247,.25)}
+    50%{transform:scale(1.08);box-shadow:0 0 70px rgba(79,140,255,.75),0 0 140px rgba(168,85,247,.45)}}
+  .etat{margin:14px 0 18px;font-size:.9rem;color:var(--muted);min-height:1.2em}
+  .journal{width:100%;max-width:520px;height:230px;overflow-y:auto;display:flex;flex-direction:column;
+    gap:10px;padding:14px;border-radius:16px;background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.07);scrollbar-width:thin}
+  .msg{max-width:85%;padding:9px 13px;border-radius:14px;font-size:.9rem;line-height:1.4;animation:apparait .25s ease}
+  @keyframes apparait{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .msg.vous{align-self:flex-end;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-bottom-right-radius:4px}
+  .msg.bot{align-self:flex-start;background:rgba(255,255,255,.08);border-bottom-left-radius:4px}
+  .msg.sys{align-self:center;background:none;color:var(--muted);font-size:.78rem;font-style:italic}
+  .saisie{display:flex;gap:8px;width:100%;max-width:520px;margin-top:14px}
+  .saisie input{flex:1;padding:12px 16px;border-radius:12px;border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.06);color:var(--txt);font-size:.9rem;outline:none}
+  .saisie input:focus{border-color:var(--accent)}
+  .saisie button{padding:12px 18px;border-radius:12px;border:none;cursor:pointer;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:600;font-size:.9rem}
+  .outils{display:flex;gap:8px;margin-top:10px}
+  .outils button{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);
+    color:var(--muted);padding:7px 14px;border-radius:10px;cursor:pointer;font-size:.78rem}
+  .outils button:hover{color:var(--txt)}
+  .note{max-width:520px;text-align:center;color:var(--muted);font-size:.75rem;margin-top:18px;line-height:1.5}
+  .alerte{max-width:520px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.35);
+    color:#ffb3b3;padding:10px 14px;border-radius:10px;font-size:.78rem;margin-bottom:18px;line-height:1.5}
+</style>
+</head>
+<body>
+
+  <h1>🎙️ Assistant Vocal + IA</h1>
+  <p class="sub">Cliquez sur l'orbe, puis parlez</p>
+
+  <div class="alerte" id="alerte" style="display:none">
+    ⚠️ Aucune clé API configurée — remplissez <code>CONFIG.apiKey</code> en haut du script.
+    (Sauf pour Ollama en local, où la clé n'est pas nécessaire.)
+  </div>
+
+  <div class="orb-wrap">
+    <div class="anneau"></div><div class="anneau"></div>
+    <button id="orb" class="orb" aria-label="Activer l'assistant"></button>
+  </div>
+
+  <p id="etat" class="etat">Cliquez sur l'orbe pour commencer</p>
+
+  <div id="journal" class="journal">
+    <div class="msg sys">« Quelle heure est-il », « combien font 12 fois 8 », « explique-moi la photosynthèse »…</div>
+  </div>
+
+  <form id="form" class="saisie" autocomplete="off">
+    <input id="champ" type="text" placeholder="Ou tapez votre message…">
+    <button type="submit">Envoyer</button>
+  </form>
+
+  <div class="outils">
+    <button id="btnEffacer">🗑️ Effacer</button>
+    <button id="btnStop">⏹️ Couper la voix</button>
+  </div>
+
+  <p class="note">Chrome / Edge • HTTPS ou localhost • Micro autorisé.</p>
+
+<script>
+/* ================================================================
+   ⬇️⬇️⬇️  ZONE À REMPLIR : VOTRE CLÉ API  ⬇️⬇️⬇️
+   ================================================================
+   Collez votre clé entre les guillemets de "apiKey" ci-dessous.
+   Laissez la chaîne vide ('') si vous utilisez Ollama en local.
+
+   Exemples :
+     OpenAI  : apiKey: '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'
+     Mistral : apiKey: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+     Groq    : apiKey: 'gsk_xxxxxxxxxxxxxxxxxxxxxxxx'
+     Ollama  : apiKey: ''   (localhost, pas de clé)
+   ================================================================ */
+const CLE_API = '';   // ←←← COLLEZ VOTRE CLÉ ICI ENTRE LES GUILLEMETS
+/* ================================================================
+   ⬆️⬆️⬆️  FIN DE LA ZONE À REMPLIR  ⬆️⬆️⬆️
+   ================================================================ */
+
+
+/* =========================================================
+   1. Configuration (rien à toucher sauf si vous changez de fournisseur)
+   ========================================================= */
+const CONFIG = {
+  // OpenAI            : https://api.openai.com/v1/chat/completions
+  // Mistral           : https://api.mistral.ai/v1/chat/completions
+  // Groq              : https://api.groq.com/openai/v1/chat/completions
+  // Ollama (local)    : http://localhost:11434/v1/chat/completions
+  apiUrl:  'https://api.openai.com/v1/chat/completions',
+  model:   'gpt-4o-mini',
+  maxTokens: 250,
+  systemPrompt: `Tu es un assistant vocal français, amical et concis.
+Réponds en 1 à 3 phrases maximum, en langage parlé naturel.
+Pas de markdown, pas de listes, pas d'emoji : ta réponse sera lue à voix haute.`
+};
+
+// On injecte la clé définie plus haut
+CONFIG.apiKey = CLE_API;
+
+const IA_DISPONIBLE = CONFIG.apiKey.length > 0 || CONFIG.apiUrl.includes('localhost');
+if (!IA_DISPONIBLE) document.getElementById('alerte').style.display = 'block';
+
+/* =========================================================
+   2. Raccourcis & état global
+   ========================================================= */
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const synth = window.speechSynthesis;
+const orb = document.getElementById('orb');
+const etatEl = document.getElementById('etat');
+const journal = document.getElementById('journal');
+const champ = document.getElementById('champ');
+const form = document.getElementById('form');
+
+let reconnaissance = null;
+let assistantActif = false;
+let ecouteActive = false;
+let enTrainDeParler = false;
+let enAttenteReponse = false;
+let arretDemande = false;
+let voixFr = null;
+let historique = [];
+
+/* =========================================================
+   3. Synthèse vocale
+   ========================================================= */
+function chargerVoix(){
+  voixFr = synth.getVoices().find(v => v.lang && v.lang.toLowerCase().startsWith('fr')) || null;
+}
+chargerVoix();
+if (synth) synth.onvoiceschanged = chargerVoix;
+
+function parler(texte){
+  if (!synth || !texte) return;
+  synth.cancel();
+
+  const u = new SpeechSynthesisUtterance(texte);
+  u.lang = 'fr-FR'; u.rate = 1; u.pitch = 1;
+  if (voixFr) u.voice = voixFr;
+
+  enTrainDeParler = true;
+  if (ecouteActive) { try { reconnaissance.stop(); } catch(e){} }
+  majEtat('parle');
+
+  u.onend = u.onerror = () => {
+    enTrainDeParler = false;
+    if (arretDemande) { arretDemande = false; arreter(); return; }
+    majEtat('repos');
+    if (assistantActif) setTimeout(demarrerEcoute, 350);
+  };
+  synth.speak(u);
+}
+
+/* =========================================================
+   4. Reconnaissance vocale
+   ========================================================= */
+if (SpeechRecognition) {
+  reconnaissance = new SpeechRecognition();
+  reconnaissance.lang = 'fr-FR';
+  reconnaissance.continuous = true;
+  reconnaissance.interimResults = true;
+  reconnaissance.maxAlternatives = 1;
+
+  reconnaissance.onstart = () => { ecouteActive = true; if (!enAttenteReponse) majEtat('ecoute'); };
+
+  reconnaissance.onend = () => {
+    ecouteActive = false;
+    if (!enTrainDeParler && !enAttenteReponse) majEtat('repos');
+    if (assistantActif && !enTrainDeParler && !enAttenteReponse) {
+      setTimeout(() => {
+        if (assistantActif && !enTrainDeParler && !enAttenteReponse && !ecouteActive) demarrerEcoute();
+      }, 300);
+    }
+  };
+
+  reconnaissance.onerror = (e) => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      ajouterMessage('sys', "Micro refusé. Autorisez le microphone puis réessayez.");
+      arreter();
+    }
+  };
+
+  reconnaissance.onresult = (e) => {
+    let intermediaire = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const res = e.results[i];
+      const txt = res[0].transcript.trim();
+      if (res.isFinal) { if (txt) traiterEntree(txt); }
+      else intermediaire += txt;
+    }
+    if (intermediaire && !enAttenteReponse) etatEl.textContent = '🎧 « ' + intermediaire + ' »';
+  };
+} else {
+  ajouterMessage('sys', "Reconnaissance vocale non supportée. Utilisez le champ texte.");
+}
+
+function demarrerEcoute(){
+  if (!reconnaissance || enTrainDeParler || enAttenteReponse) return;
+  try { reconnaissance.start(); } catch(e){}
+}
+
+function arreter(){
+  assistantActif = false;
+  if (synth) synth.cancel();
+  if (reconnaissance) { try { reconnaissance.stop(); } catch(e){} }
+  enTrainDeParler = false; enAttenteReponse = false;
+  majEtat('repos');
+}
+
+/* =========================================================
+   5. Interface
+   ========================================================= */
+function majEtat(mode){
+  orb.classList.remove('ecoute','parle','reflechi');
+  if (mode === 'ecoute')       { orb.classList.add('ecoute');   etatEl.textContent = '🎧 Je vous écoute…'; }
+  else if (mode === 'parle')   { orb.classList.add('parle');    etatEl.textContent = '🔊 Je réponds…'; }
+  else if (mode === 'reflechi'){ orb.classList.add('reflechi'); etatEl.textContent = '🤔 Je réfléchis…'; }
+  else                         { etatEl.textContent = assistantActif ? 'En attente…' : "Cliquez sur l'orbe pour commencer"; }
+}
+
+function ajouterMessage(type, texte){
+  const d = document.createElement('div');
+  d.className = 'msg ' + type;
+  d.textContent = texte;
+  journal.appendChild(d);
+  journal.scrollTop = journal.scrollHeight;
+}
+
+orb.addEventListener('click', () => {
+  if (!SpeechRecognition) { ajouterMessage('sys', "Utilisez le champ texte."); return; }
+  if (assistantActif) arreter();
+  else { assistantActif = true; demarrerEcoute(); majEtat('ecoute'); }
+});
+
+document.getElementById('btnEffacer').onclick = () => { journal.innerHTML = ''; historique = []; };
+document.getElementById('btnStop').onclick = () => {
+  if (synth) synth.cancel();
+  enTrainDeParler = false; majEtat('repos');
+};
+
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const txt = champ.value.trim();
+  if (!txt) return;
+  champ.value = '';
+  traiterEntree(txt);
+});
+
+/* =========================================================
+   6. Traitement d'une phrase  (règles locales PUIS IA)
+   ========================================================= */
+async function traiterEntree(texte){
+  ajouterMessage('vous', texte);
+  if (ecouteActive) { try { reconnaissance.stop(); } catch(e){} }
+
+  let reponse;
+  const locale = reglesLocales(texte);
+
+  if (locale !== null) {
+    reponse = locale;
+  } else if (IA_DISPONIBLE) {
+    enAttenteReponse = true;
+    majEtat('reflechi');
+    reponse = await appelerIA(texte);
+    enAttenteReponse = false;
+  } else {
+    reponse = "Aucune clé API n'est configurée. Remplissez CONFIG.apiKey en haut du fichier.";
+  }
+
+  ajouterMessage('bot', reponse);
+  parler(reponse);
+}
+
+/* --- Règles locales rapides ---------------------------------------- */
+function reglesLocales(texte){
+  const t = texte.toLowerCase().trim();
+
+  if (/\d/.test(t)) {
+    const r = tenterCalcul(t);
+    if (r !== null) return `Ça fait ${r}.`;
+  }
+  if (/(quelle heure|il est quelle heure|l'heure est)/.test(t)) return `Il est ${heure()}.`;
+  if (/(quel jour|la date|quelle date|on est le)/.test(t))       return `Nous sommes le ${dateDuJour()}.`;
+  if (/(ouvre|lance|va sur)\s+youtube/.test(t)) { window.open('https://www.youtube.com','_blank'); return "J'ouvre YouTube."; }
+  if (/(ouvre|lance|va sur)\s+google/.test(t))  { window.open('https://www.google.com','_blank');  return "J'ouvre Google."; }
+  if (/(ouvre|lance)\s+(gmail|mail)/.test(t))   { window.open('https://mail.google.com','_blank'); return "J'ouvre votre messagerie."; }
+  if (/(au revoir|bonne journée|à plus|a plus|stop|arrête[- ]toi|tais[- ]toi)/.test(t)) {
+    arretDemande = true; return "Au revoir !";
+  }
+  return null;
+}
+
+/* --- Appel à l'API IA ---------------------------------------------- */
+async function appelerIA(texte){
+  historique.push({ role: 'user', content: texte });
+  const messages = [
+    { role: 'system', content: CONFIG.systemPrompt },
+    ...historique.slice(-12)
+  ];
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (CONFIG.apiKey) headers['Authorization'] = 'Bearer ' + CONFIG.apiKey;
+
+  try {
+    const res = await fetch(CONFIG.apiUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: CONFIG.model,
+        messages,
+        max_tokens: CONFIG.maxTokens,
+        temperature: 0.7
+      })
+    });
+
+    if (!res.ok) {
+      const errTxt = await res.text();
+      throw new Error(`HTTP ${res.status} — ${errTxt.slice(0, 180)}`);
+    }
+
+    const data = await res.json();
+    const reponse = data.choices?.[0]?.message?.content?.trim() || "(réponse vide)";
+    historique.push({ role: 'assistant', content: reponse });
+    return reponse;
+
+  } catch (e) {
+    console.error('[IA]', e);
+    historique.pop();
+    return "Désolé, je n'arrive pas à joindre l'IA. Vérifiez votre clé API et la connexion. (" + e.message + ")";
+  }
+}
+
+/* =========================================================
+   7. Utilitaires
+   ========================================================= */
+function heure(){
+  return new Date().toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
+}
+function dateDuJour(){
+  return new Date().toLocaleDateString('fr-FR',
+    { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+}
+function tenterCalcul(t){
+  let s = t
+    .replace(/combien (font|fait|vaut)|calcule[rz]?|calculer|résultat de|resultat de/g, '')
+    .replace(/multiplié par|multiplie par|fois/g, '*')
+    .replace(/divisé par|divise par/g, '/')
+    .replace(/plus/g, '+').replace(/moins/g, '-')
+    .replace(/,/g, '.').replace(/\s/g, '');
+  if (!s || !/^[\d+\-*/().]+$/.test(s) || !/\d/.test(s)) return null;
+  try {
+    const r = Function('"use strict"; return (' + s + ');')();
+    if (typeof r === 'number' && isFinite(r)) return Math.round(r * 1e6) / 1e6;
+  } catch(e){}
+  return null;
+}
+</script>
+</body>
+  </html>
